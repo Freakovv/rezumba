@@ -1,0 +1,367 @@
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import type Lenis from "lenis";
+
+export const SECTION_PROGRESS: Record<string, number> = {
+  "#hero": 0,
+  "#stack": 0.25,
+  "#experience": 0.56,
+  "#contact": 1,
+};
+
+/** Below this progress only the hero should be visible. */
+export const HERO_PANEL_CUTOFF = 0.115;
+
+/** Depth state after hero exit — lock during section-to-section nav. */
+const SECTION_DEPTH_PROGRESS = 0.12;
+
+type PanelKey = "stack" | "cases" | "contact";
+type NavTarget = PanelKey | "hero";
+
+type DepthRefs = {
+  visual: HTMLElement | null;
+  figure: HTMLElement | null;
+  foreground: HTMLElement | null;
+};
+
+type DepthTuning = {
+  maxBlur: number;
+  textBlur: number;
+  endScale: number;
+};
+
+type ScrollExperience = {
+  scrollTrigger: ScrollTrigger;
+  timeline: gsap.core.Timeline;
+  panels: Record<PanelKey, HTMLElement | null>;
+  depth: DepthRefs;
+  depthTuning: DepthTuning;
+};
+
+const HREF_TO_TARGET: Record<string, NavTarget> = {
+  "#hero": "hero",
+  "#stack": "stack",
+  "#experience": "cases",
+  "#contact": "contact",
+};
+
+const NAV_DURATION = 1.1;
+const NAV_DURATION_HERO = 0.72;
+const NAV_DURATION_SECTION = 0.55;
+
+let experience: ScrollExperience | null = null;
+let navTween: gsap.core.Timeline | null = null;
+let activeNavTarget: NavTarget | null = null;
+let heroEntranceLock = false;
+
+export function setHeroEntranceLock(locked: boolean) {
+  heroEntranceLock = locked;
+
+  if (!experience) return;
+
+  if (locked) {
+    experience.scrollTrigger.disable();
+    return;
+  }
+
+  experience.scrollTrigger.enable();
+  syncScrollExperienceDepth();
+  ScrollTrigger.update();
+}
+
+function clamp01(value: number) {
+  return Math.min(Math.max(value, 0), 1);
+}
+
+function lerp(from: number, to: number, t: number) {
+  return from + (to - from) * clamp01(t);
+}
+
+export function hidePanel(panel: HTMLElement | null) {
+  if (!panel) return;
+  gsap.set(panel, {
+    autoAlpha: 0,
+    y: 80,
+    zIndex: 1,
+    visibility: "hidden",
+    pointerEvents: "none",
+  });
+}
+
+export function hideAllPanels(panels: Record<PanelKey, HTMLElement | null>) {
+  (Object.keys(panels) as PanelKey[]).forEach((key) => hidePanel(panels[key]));
+}
+
+function suppressNonTargetPanels(
+  panels: Record<PanelKey, HTMLElement | null>,
+  target: NavTarget,
+) {
+  (Object.keys(panels) as PanelKey[]).forEach((key) => {
+    if (target !== "hero" && key === target) return;
+    hidePanel(panels[key]);
+  });
+}
+
+/** Mirror scroll-timeline depth keyframes for reliable nav scrub. */
+export function applyDepthAtProgress(
+  progress: number,
+  depth: DepthRefs,
+  tuning: DepthTuning,
+) {
+  if (heroEntranceLock && progress < HERO_PANEL_CUTOFF) return;
+
+  const p = Math.max(0, progress);
+  const { maxBlur, textBlur, endScale } = tuning;
+
+  if (p <= 0) {
+    if (depth.visual) {
+      gsap.set(depth.visual, { scale: 1, opacity: 1, filter: "blur(0px)" });
+    }
+    if (depth.figure) {
+      gsap.set(depth.figure, { scale: 1, filter: "blur(0px)" });
+    }
+    if (depth.foreground) {
+      gsap.set(depth.foreground, { opacity: 1, y: 0, blur: 0 });
+    }
+    return;
+  }
+
+  const enter = clamp01(p / 0.12);
+  const blurPhase = clamp01(p / 0.14);
+
+  let fgOpacity = 1;
+  let fgY = 0;
+  if (p > 0.06) {
+    const fadeT = clamp01((p - 0.06) / 0.1);
+    fgOpacity = 1 - fadeT;
+    fgY = -48 * fadeT;
+  }
+
+  const fgBlur = p >= 0.14 ? textBlur : lerp(0, textBlur, blurPhase);
+
+  if (depth.visual) {
+    gsap.set(depth.visual, {
+      scale: lerp(1, endScale, enter),
+      opacity: lerp(1, 0.65, enter),
+      filter: `blur(${lerp(0, maxBlur, enter)}px)`,
+    });
+  }
+
+  if (depth.figure) {
+    gsap.set(depth.figure, {
+      scale: lerp(1, endScale, enter),
+      filter: `blur(${lerp(0, maxBlur, enter)}px)`,
+    });
+  }
+
+  if (depth.foreground) {
+    if (p >= 0.12) {
+      gsap.set(depth.foreground, { opacity: 0, y: -48, blur: textBlur });
+    } else {
+      gsap.set(depth.foreground, { opacity: fgOpacity, y: fgY, blur: fgBlur });
+    }
+  }
+}
+
+function getScrollYForProgress(st: ScrollTrigger, progress: number) {
+  return st.start + progress * (st.end - st.start);
+}
+
+function isSectionToSectionNav(fromProgress: number, target: NavTarget, toProgress: number) {
+  return fromProgress >= SECTION_DEPTH_PROGRESS && target !== "hero" && toProgress >= SECTION_DEPTH_PROGRESS;
+}
+
+/** Includes transition gaps so same-section clicks don't re-animate. */
+export function isAlreadyAtSection(target: NavTarget, progress: number) {
+  if (target === "hero") return progress < 0.12;
+  if (target === "stack") return progress >= 0.115 && progress < 0.38;
+  if (target === "cases") return progress >= 0.36 && progress < 0.76;
+  if (target === "contact") return progress >= 0.74;
+  return false;
+}
+
+function releaseNavScrollTrigger() {
+  if (!experience) return;
+  experience.scrollTrigger.enable();
+  ScrollTrigger.update();
+}
+
+function stopNavTween(releaseScrollTrigger = true) {
+  if (!navTween) return;
+  navTween.kill();
+  navTween = null;
+  activeNavTarget = null;
+  if (releaseScrollTrigger) releaseNavScrollTrigger();
+}
+
+function finishNav(
+  href: string,
+  target: NavTarget,
+  targetProgress: number,
+  lenis: Lenis | null | undefined,
+) {
+  if (!experience) return;
+
+  const { scrollTrigger: st, timeline, panels, depth, depthTuning } = experience;
+  const y = getScrollYForProgress(st, targetProgress);
+
+  timeline.progress(targetProgress);
+  applyDepthAtProgress(targetProgress, depth, depthTuning);
+
+  if (target === "hero" || targetProgress < HERO_PANEL_CUTOFF) {
+    hideAllPanels(panels);
+  }
+
+  lenis?.scrollTo(y, { immediate: true, force: true });
+  st.enable();
+  ScrollTrigger.update();
+
+  window.history.replaceState(null, "", href);
+  navTween = null;
+  activeNavTarget = null;
+}
+
+export function isNavigating() {
+  return navTween !== null;
+}
+
+export function isScrollExperienceRegistered() {
+  return experience !== null;
+}
+
+export function getSectionHashOnLoad(): string | null {
+  if (typeof window === "undefined") return null;
+
+  const hash = window.location.hash;
+  if (!hash || hash === "#hero") return null;
+
+  return hash in SECTION_PROGRESS ? hash : null;
+}
+
+/** Force-hide overlay panels in the hero scroll zone. */
+export function enforcePanelsForProgress(
+  progress: number,
+  panels: Record<PanelKey, HTMLElement | null>,
+) {
+  if (progress >= HERO_PANEL_CUTOFF) return;
+  hideAllPanels(panels);
+}
+
+/** Keep hero depth/blur aligned with the scroll timeline (e.g. after reload). */
+export function syncScrollExperienceDepth() {
+  if (!experience || isNavigating()) return;
+
+  const progress = experience.scrollTrigger.progress;
+  experience.timeline.progress(progress);
+  applyDepthAtProgress(progress, experience.depth, experience.depthTuning);
+  enforcePanelsForProgress(progress, experience.panels);
+}
+
+export function restoreSectionFromHash(href: string): number | null {
+  if (!experience) return null;
+
+  const progress = SECTION_PROGRESS[href];
+  if (progress === undefined) return null;
+
+  const { scrollTrigger: st, timeline, depth, depthTuning } = experience;
+  const y = getScrollYForProgress(st, progress);
+
+  timeline.progress(progress);
+  applyDepthAtProgress(progress, depth, depthTuning);
+  st.scroll(y);
+  ScrollTrigger.update();
+
+  return y;
+}
+
+export function registerScrollExperience(exp: ScrollExperience) {
+  experience = exp;
+
+  if (getSectionHashOnLoad()) {
+    syncScrollExperienceDepth();
+  } else {
+    heroEntranceLock = true;
+    exp.scrollTrigger.disable();
+  }
+
+  return () => {
+    stopNavTween();
+    heroEntranceLock = false;
+    if (experience === exp) experience = null;
+  };
+}
+
+export function scrollToSection(href: string, lenis: Lenis | null | undefined) {
+  const targetProgress = SECTION_PROGRESS[href];
+  const target = HREF_TO_TARGET[href];
+
+  if (targetProgress === undefined || !target || !experience) return;
+
+  if (activeNavTarget === target && navTween) return;
+
+  const { scrollTrigger: st, timeline, panels, depth, depthTuning } = experience;
+
+  stopNavTween(false);
+
+  const currentProgress = timeline.progress();
+
+  if (isAlreadyAtSection(target, currentProgress)) {
+    if (target === "hero") {
+      timeline.progress(0);
+      applyDepthAtProgress(0, depth, depthTuning);
+      hideAllPanels(panels);
+      lenis?.scrollTo(0, { immediate: true, force: true });
+      ScrollTrigger.update();
+    }
+    window.history.replaceState(null, "", href);
+    return;
+  }
+
+  window.history.replaceState(null, "", href);
+
+  const fromProgress = currentProgress;
+  const navDriver = { progress: fromProgress };
+  const lockSectionDepth = isSectionToSectionNav(fromProgress, target, targetProgress);
+
+  if (lockSectionDepth) {
+    applyDepthAtProgress(SECTION_DEPTH_PROGRESS, depth, depthTuning);
+  }
+
+  activeNavTarget = target;
+  st.disable();
+  hideAllPanels(panels);
+
+  navTween = gsap.timeline({
+    defaults: { ease: "power2.inOut", overwrite: "auto" },
+    onComplete: () => finishNav(href, target, targetProgress, lenis),
+    onInterrupt: () => {
+      navTween = null;
+      activeNavTarget = null;
+    },
+  });
+
+  let duration = NAV_DURATION;
+  if (target === "hero") duration = NAV_DURATION_HERO;
+  else if (lockSectionDepth) duration = NAV_DURATION_SECTION;
+
+  navTween.to(
+    navDriver,
+    {
+      progress: targetProgress,
+      duration,
+      onUpdate: () => {
+        timeline.progress(navDriver.progress);
+        if (lockSectionDepth) {
+          applyDepthAtProgress(SECTION_DEPTH_PROGRESS, depth, depthTuning);
+        } else {
+          applyDepthAtProgress(navDriver.progress, depth, depthTuning);
+        }
+        suppressNonTargetPanels(panels, target);
+        if (navDriver.progress < HERO_PANEL_CUTOFF) {
+          hideAllPanels(panels);
+        }
+      },
+    },
+    0,
+  );
+}

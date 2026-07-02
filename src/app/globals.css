@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+:root {
+  --background: #050508;
+  --foreground: #f4f4f5;
+  --muted: #a1a1aa;
+  --accent: #a78bfa;
+  --accent-glow: rgba(167, 139, 250, 0.35);
+  --surface: #0f0f14;
+  --surface-elevated: #16161f;
+  --border: rgba(255, 255, 255, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border: var(--border);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-serif);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--background);
+}
+
+.noise-overlay {
+  position: absolute;
+  inset: 0;
+  opacity: 0.04;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+.gradient-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+.light-leak {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(ellipse 60% 50% at 85% 8%, rgba(255, 184, 107, 0.25), transparent 60%),
+    radial-gradient(ellipse 45% 40% at 8% 95%, rgba(124, 58, 237, 0.18), transparent 60%);
+}
+
+.film-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.05;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0, 0 0 0 0 0, 0 0 0 0 0, 0.3 0.3 0.3 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain)'/%3E%3C/svg%3E");
+}
+
+.section-padding {
+  padding-inline: clamp(1.5rem, 5vw, 4rem);
+  padding-block: clamp(5rem, 12vw, 9rem);
+}
+
+/* Hidden until GSAP scroll timeline takes over — prevents flash on load */
+.content-panel-layer {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 80px, 0);
+}
+
+/* Hero entrance — applied before JS hydrates, removed when GSAP starts */
+.hero-pending .hero-visual-layer {
+  transform: scale(1.08);
+}
+
+.hero-pending .hero-foreground,
+.hero-pending .hero-figure,
+html[data-section-restore="true"] .hero-foreground {
+  opacity: 0 !important;
+}
+
+.hero-pending .hero-chrome-root,
+.hero-pending .hero-scroll-hint {
+  opacity: 0;
+}
+
+.hero-pending .hero-foreground {
+  transform: translate3d(0, 48px, 0);
+}
+
+.hero-pending .hero-chrome-root {
+  transform: translate3d(0, -10px, 0);
+}
+
+.hero-pending .hero-scroll-hint {
+  transform: translate3d(0, 12px, 0);
+}
+
+.case-prose h2 {
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.case-prose h2:first-child {
+  margin-top: 0;
+}
+
+.case-prose p {
+  margin-bottom: 1rem;
+  line-height: 1.75;
+  color: var(--muted);
+}
+
+.case-prose ul {
+  margin-bottom: 1rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+  color: var(--muted);
+}
+
+.case-prose li {
+  margin-bottom: 0.5rem;
+  line-height: 1.7;
+}
+
+.case-prose strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.case-modal-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+}
+
+.case-modal-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
