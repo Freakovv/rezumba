@@ -7,6 +7,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { profile } from "@/lib/profile";
 import { TextReveal } from "@/components/ui/TextReveal";
 import { ContactFormModal } from "@/components/ui/ContactFormModal";
+import { prefersReducedMotion } from "@/lib/motion-preferences";
 import { useTranslations } from "@/components/providers/LocaleProvider";
 
 gsap.registerPlugin(ScrollTrigger);
@@ -36,7 +37,7 @@ export const Contact = forwardRef<
 
   useGSAP(
     () => {
-      if (overlay) return;
+      if (overlay || prefersReducedMotion()) return;
 
       gsap.from(".contact-link", {
         y: 30,
@@ -64,17 +65,22 @@ export const Contact = forwardRef<
       {...props}
     >
       <div className="rounded-2xl border border-border/60 bg-background/85 p-8 backdrop-blur-md sm:p-10">
-        <TextReveal as="p" className="text-sm uppercase tracking-[0.3em] text-accent">
+        <TextReveal
+          as="p"
+          disabled={overlay}
+          className="text-sm uppercase tracking-[0.3em] text-accent"
+        >
           {t.contact.eyebrow}
         </TextReveal>
         <TextReveal
           as="h2"
+          disabled={overlay}
           className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl"
           delay={0.1}
         >
           {t.contact.title}
         </TextReveal>
-        <TextReveal as="p" className="mt-4 text-muted" delay={0.15}>
+        <TextReveal as="p" disabled={overlay} className="mt-4 text-muted" delay={0.15}>
           {t.contact.subtitle}
         </TextReveal>
 
@@ -98,11 +104,11 @@ export const Contact = forwardRef<
           ))}
         </ul>
 
-        <TextReveal as="div" className="mt-8 sm:mt-10" delay={0.2}>
+        <TextReveal as="div" disabled={overlay} className="mt-8 sm:mt-10" delay={0.2}>
           <button
             type="button"
             onClick={() => setFormOpen(true)}
-            className="contact-link inline-flex w-full items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-90 sm:w-auto"
+            className="contact-link inline-flex w-full items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-background transition-[opacity,transform] hover:opacity-90 active:scale-[0.98] sm:w-auto"
           >
             {t.contact.sendMessage}
           </button>

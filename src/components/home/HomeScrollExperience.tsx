@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -34,6 +34,7 @@ type HomeScrollExperienceProps = {
 export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProps) {
   const { locale } = useLocale();
   const lenis = useLenis();
+  const lenisRef = useRef(lenis);
   const cases = casesByLocale[locale];
   const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -46,6 +47,10 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
   const stackRef = useRef<HTMLElement>(null);
   const casesRef = useRef<HTMLElement>(null);
   const contactRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    lenisRef.current = lenis;
+  }, [lenis]);
 
   useGSAP(
     () => {
@@ -62,16 +67,18 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
         {
           isMobile: "(max-width: 639px)",
           isDesktop: "(min-width: 640px)",
+          reduceMotion: "(prefers-reduced-motion: reduce)",
         },
         (context) => {
-          const { isMobile } = context.conditions as { isMobile: boolean };
-          const maxBlur = isMobile ? 8 : 14;
-          const textBlur = isMobile ? 14 : 24;
+          const { isMobile, reduceMotion } = context.conditions as {
+            isMobile: boolean;
+            reduceMotion: boolean;
+          };
+          // Live CSS filter:blur on full-viewport images is the main GPU cost.
+          // Keep it mild; grain no longer sits inside the filtered layer.
+          const maxBlur = reduceMotion ? 0 : isMobile ? 4 : 6;
+          const textBlur = 0;
           const endScale = isMobile ? 0.82 : 0.78;
-
-          if (foregroundRef.current) {
-            gsap.set(foregroundRef.current, { blur: 0 });
-          }
 
           const depthRefs = {
             visual: visualRef.current,
@@ -84,6 +91,9 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
             contact: contactRef.current,
           };
 
+          // Depth (scale / opacity / blur) is driven only from onUpdate via
+          // applyDepthAtProgress — animating the same filters on the timeline
+          // as well doubled GPU work every scroll frame.
           const tl = gsap.timeline({
             scrollTrigger: {
               trigger: stageRef.current,
@@ -112,72 +122,23 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
             },
           });
 
+          applyDepthAtProgress(0, depthRefs, { maxBlur, textBlur, endScale });
+
           tl.set(
-            visualRef.current,
-            { scale: 1, opacity: 1, filter: "blur(0px)" },
-            0,
-          )
-            .set(
-              figureRef.current,
-              { scale: 1, filter: "blur(0px)" },
-              0,
-            )
-            .set(
-              foregroundRef.current,
-              { opacity: 1, y: 0, blur: 0 },
-              0,
-            )
-            .set(
             [stackRef.current, casesRef.current, contactRef.current].filter(Boolean),
             {
               autoAlpha: 0,
               y: 80,
+              scale: 0.96,
               zIndex: 1,
               visibility: "hidden",
               pointerEvents: "none",
             },
             0,
-          );
-          tl.to(
-            visualRef.current,
-            {
-              scale: endScale,
-              opacity: 0.65,
-              filter: `blur(${maxBlur}px)`,
-              ease: "none",
-              duration: 0.12,
-            },
-            0,
           )
-            .to(
-              figureRef.current,
-              {
-                scale: endScale,
-                filter: `blur(${maxBlur}px)`,
-                ease: "none",
-                duration: 0.12,
-              },
-              0,
-            )
-            .to(
-              foregroundRef.current,
-              {
-                blur: textBlur,
-                ease: "none",
-                duration: 0.14,
-              },
-              0,
-            )
-            .to(
-              foregroundRef.current,
-              {
-                opacity: 0,
-                y: -48,
-                ease: "none",
-                duration: 0.1,
-              },
-              0.06,
-            )
+            // Spacer so panel cues keep the same progress positions while
+            // depth is handled outside the timeline.
+            .to({}, { duration: 0.12 }, 0)
             .set(
               stackRef.current,
               { visibility: "visible", zIndex: 3, pointerEvents: "auto" },
@@ -185,7 +146,7 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
             )
             .to(
               stackRef.current,
-              { y: 0, autoAlpha: 1, ease: "none", duration: 0.06 },
+              { y: 0, autoAlpha: 1, scale: 1, ease: "none", duration: 0.06 },
               0.12,
             )
             .to(
@@ -195,7 +156,7 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
             )
             .to(
               stackRef.current,
-              { y: -36, autoAlpha: 0, ease: "none", duration: 0.06 },
+              { y: -36, autoAlpha: 0, scale: 0.98, ease: "none", duration: 0.06 },
               0.32,
             )
             .set(
@@ -205,6 +166,7 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
                 zIndex: 1,
                 pointerEvents: "none",
                 y: 80,
+                scale: 0.96,
               },
               0.36,
             )
@@ -215,7 +177,7 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
             )
             .to(
               casesRef.current,
-              { y: 0, autoAlpha: 1, ease: "none", duration: 0.06 },
+              { y: 0, autoAlpha: 1, scale: 1, ease: "none", duration: 0.06 },
               0.38,
             )
             .to(
@@ -225,7 +187,7 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
             )
             .to(
               casesRef.current,
-              { y: -36, autoAlpha: 0, ease: "none", duration: 0.06 },
+              { y: -36, autoAlpha: 0, scale: 0.98, ease: "none", duration: 0.06 },
               0.68,
             )
             .set(
@@ -235,6 +197,7 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
                 zIndex: 1,
                 pointerEvents: "none",
                 y: 80,
+                scale: 0.96,
               },
               0.74,
             )
@@ -245,7 +208,7 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
             )
             .to(
               contactRef.current,
-              { y: 0, autoAlpha: 1, ease: "none", duration: 0.06 },
+              { y: 0, autoAlpha: 1, scale: 1, ease: "none", duration: 0.06 },
               0.76,
             )
             .to(
@@ -282,24 +245,31 @@ export function HomeScrollExperience({ casesByLocale }: HomeScrollExperienceProp
 
       window.addEventListener("resize", refresh);
       window.visualViewport?.addEventListener("resize", refresh);
-      requestAnimationFrame(() => {
+
+      const applyHashOrSync = (attempts = 0) => {
         ScrollTrigger.refresh();
         const hash = getSectionHashOnLoad();
-        if (hash) {
-          const y = restoreSectionFromHash(hash);
-          if (y !== null) {
-            lenis?.scrollTo(y, { immediate: true, force: true });
-          }
+        if (!hash) {
           syncScrollExperienceDepth();
-        } else {
-          syncScrollExperienceDepth();
+          return;
         }
-      });
+
+        // Lenis mounts in a sibling effect — wait a few frames if needed.
+        if (!lenisRef.current && attempts < 12) {
+          requestAnimationFrame(() => applyHashOrSync(attempts + 1));
+          return;
+        }
+
+        restoreSectionFromHash(hash, lenisRef.current);
+      };
+
+      requestAnimationFrame(() => applyHashOrSync());
 
       return () => {
         if (resizeTimer) clearTimeout(resizeTimer);
         window.removeEventListener("resize", refresh);
         window.visualViewport?.removeEventListener("resize", refresh);
+        mm.revert();
       };
     },
     { scope: rootRef, dependencies: [] },

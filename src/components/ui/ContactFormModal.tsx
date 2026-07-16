@@ -1,10 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { useLenis } from "lenis/react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 import { profile } from "@/lib/profile";
+import { prefersReducedMotion } from "@/lib/motion-preferences";
 import {
   buildTelegramContactUrl,
   validateContactForm,
@@ -22,11 +31,23 @@ const initialValues: ContactFormValues = {
   message: "",
 };
 
+const subscribeNoop = () => () => {};
+
 export function ContactFormModal({ open, onClose }: ContactFormModalProps) {
   const { locale } = useLocale();
   const t = useTranslations();
   const lenis = useLenis();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    () => true,
+    () => false,
+  );
+  const rootRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // Once opened, the modal stays mounted so GSAP can play the exit
+  // animation; visibility is fully driven by autoAlpha.
+  const [hasOpened, setHasOpened] = useState(false);
+  if (open && !hasOpened) setHasOpened(true);
   const [values, setValues] = useState<ContactFormValues>(initialValues);
   const [company, setCompany] = useState("");
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
@@ -68,9 +89,54 @@ export function ContactFormModal({ open, onClose }: ContactFormModalProps) {
     };
   }, [close, lenis, open]);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useGSAP(
+    () => {
+      const root = rootRef.current;
+      const dialog = dialogRef.current;
+      if (!hasOpened || !root || !dialog) return;
+
+      const reduced = prefersReducedMotion();
+
+      if (open) {
+        if (reduced) {
+          gsap.set(root, { autoAlpha: 1 });
+          gsap.set(dialog, { autoAlpha: 1, y: 0, scale: 1 });
+          return;
+        }
+        gsap.fromTo(
+          root,
+          { autoAlpha: 0 },
+          { autoAlpha: 1, duration: 0.25, ease: "power1.out", overwrite: "auto" },
+        );
+        gsap.fromTo(
+          dialog,
+          { autoAlpha: 0, y: 32, scale: 0.97 },
+          { autoAlpha: 1, y: 0, scale: 1, duration: 0.5, ease: "expo.out", overwrite: "auto" },
+        );
+        return;
+      }
+
+      if (reduced) {
+        gsap.set(root, { autoAlpha: 0 });
+        return;
+      }
+      gsap.to(dialog, {
+        autoAlpha: 0,
+        y: 24,
+        scale: 0.98,
+        duration: 0.22,
+        ease: "power2.in",
+        overwrite: "auto",
+      });
+      gsap.to(root, {
+        autoAlpha: 0,
+        duration: 0.22,
+        ease: "power2.in",
+        overwrite: "auto",
+      });
+    },
+    { dependencies: [open, hasOpened] },
+  );
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -90,17 +156,13 @@ export function ContactFormModal({ open, onClose }: ContactFormModalProps) {
     setError("");
   };
 
-  if (!mounted) return null;
+  if (!mounted || !hasOpened) return null;
 
   return createPortal(
-    <AnimatePresence>
-      {open ? (
-        <motion.div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-8"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
+    <div
+      ref={rootRef}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-8"
+    >
           <button
             type="button"
             aria-label={t.contact.form.closeAria}
@@ -108,15 +170,12 @@ export function ContactFormModal({ open, onClose }: ContactFormModalProps) {
             onClick={close}
           />
 
-          <motion.div
+          <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-form-title"
             className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-surface-elevated shadow-2xl shadow-accent/10"
-            initial={{ opacity: 0, y: 32, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 32, scale: 0.98 }}
-            transition={{ type: "spring", damping: 28, stiffness: 320 }}
             onClick={(event) => event.stopPropagation()}
             data-lenis-prevent
           >
@@ -218,16 +277,14 @@ export function ContactFormModal({ open, onClose }: ContactFormModalProps) {
 
                 <button
                   type="submit"
-                  className="w-full rounded-full bg-accent px-4 py-3 text-sm font-medium text-background transition-opacity hover:opacity-90"
+                  className="w-full rounded-full bg-accent px-4 py-3 text-sm font-medium text-background transition-[opacity,transform] hover:opacity-90 active:scale-[0.98]"
                 >
                   {t.contact.form.submit}
                 </button>
               </form>
             )}
-          </motion.div>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>,
+          </div>
+    </div>,
     document.body,
   );
 }

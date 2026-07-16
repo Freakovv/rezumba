@@ -45,12 +45,14 @@ export const Cases = forwardRef<HTMLElement, CasesProps>(function Cases(
       >
         <TextReveal
           as="p"
+          disabled={overlay}
           className="text-xs uppercase tracking-[0.28em] text-accent sm:text-sm sm:tracking-[0.3em]"
         >
           {t.cases.eyebrow}
         </TextReveal>
         <TextReveal
           as="h2"
+          disabled={overlay}
           className="mt-3 text-2xl font-semibold tracking-tight sm:mt-4 sm:text-3xl sm:text-4xl"
           delay={0.1}
         >

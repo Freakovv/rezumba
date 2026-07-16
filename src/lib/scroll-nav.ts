@@ -79,9 +79,12 @@ function lerp(from: number, to: number, t: number) {
 
 export function hidePanel(panel: HTMLElement | null) {
   if (!panel) return;
+  // Called on every scroll frame in the hero zone — skip if already hidden.
+  if (panel.style.visibility === "hidden" && panel.style.opacity === "0") return;
   gsap.set(panel, {
     autoAlpha: 0,
     y: 80,
+    scale: 0.96,
     zIndex: 1,
     visibility: "hidden",
     pointerEvents: "none",
@@ -102,6 +105,31 @@ function suppressNonTargetPanels(
   });
 }
 
+function round(value: number, decimals: number) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+/**
+ * Last-applied depth values per element. Past the hero exit (p >= 0.12) the
+ * computed values are constant, yet this runs on every scroll frame — the
+ * cache turns those frames into no-ops. Safe because the scrub timeline
+ * mirrors the exact same keyframes, so a skipped write never leaves a
+ * diverging style behind.
+ */
+const depthWriteCache = new WeakMap<HTMLElement, string>();
+
+function setDepth(
+  el: HTMLElement | null,
+  key: string,
+  vars: gsap.TweenVars,
+) {
+  if (!el) return;
+  if (depthWriteCache.get(el) === key) return;
+  depthWriteCache.set(el, key);
+  gsap.set(el, vars);
+}
+
 /** Mirror scroll-timeline depth keyframes for reliable nav scrub. */
 export function applyDepthAtProgress(
   progress: number,
@@ -111,23 +139,9 @@ export function applyDepthAtProgress(
   if (heroEntranceLock && progress < HERO_PANEL_CUTOFF) return;
 
   const p = Math.max(0, progress);
-  const { maxBlur, textBlur, endScale } = tuning;
-
-  if (p <= 0) {
-    if (depth.visual) {
-      gsap.set(depth.visual, { scale: 1, opacity: 1, filter: "blur(0px)" });
-    }
-    if (depth.figure) {
-      gsap.set(depth.figure, { scale: 1, filter: "blur(0px)" });
-    }
-    if (depth.foreground) {
-      gsap.set(depth.foreground, { opacity: 1, y: 0, blur: 0 });
-    }
-    return;
-  }
+  const { maxBlur, endScale } = tuning;
 
   const enter = clamp01(p / 0.12);
-  const blurPhase = clamp01(p / 0.14);
 
   let fgOpacity = 1;
   let fgY = 0;
@@ -137,29 +151,37 @@ export function applyDepthAtProgress(
     fgY = -48 * fadeT;
   }
 
-  const fgBlur = p >= 0.14 ? textBlur : lerp(0, textBlur, blurPhase);
+  const scale = round(lerp(1, endScale, enter), 4);
+  const visualOpacity = round(lerp(1, 0.65, enter), 3);
+  // Integer blur → far fewer distinct filter strings → fewer GPU re-rasters.
+  const blur = Math.round(lerp(0, maxBlur, enter));
 
-  if (depth.visual) {
-    gsap.set(depth.visual, {
-      scale: lerp(1, endScale, enter),
-      opacity: lerp(1, 0.65, enter),
-      filter: `blur(${lerp(0, maxBlur, enter)}px)`,
-    });
-  }
+  const visualFilter = blur > 0 ? `blur(${blur}px)` : "none";
+  setDepth(depth.visual, `${scale}|${visualOpacity}|${blur}`, {
+    scale,
+    opacity: visualOpacity,
+    filter: visualFilter,
+  });
 
-  if (depth.figure) {
-    gsap.set(depth.figure, {
-      scale: lerp(1, endScale, enter),
-      filter: `blur(${lerp(0, maxBlur, enter)}px)`,
-    });
-  }
+  setDepth(depth.figure, `${scale}|${blur}`, {
+    scale,
+    filter: visualFilter,
+  });
 
   if (depth.foreground) {
-    if (p >= 0.12) {
-      gsap.set(depth.foreground, { opacity: 0, y: -48, blur: textBlur });
-    } else {
-      gsap.set(depth.foreground, { opacity: fgOpacity, y: fgY, blur: fgBlur });
-    }
+    // Must match the scrub keyframes (opacity/y fade 0.06→0.16). No live text
+    // blur — it was expensive and redundant with the fade.
+    const settled = p >= 0.16;
+    setDepth(
+      depth.foreground,
+      settled
+        ? "fg|done"
+        : `fg|${round(fgOpacity, 3)}|${round(fgY, 1)}`,
+      {
+        autoAlpha: settled ? 0 : round(fgOpacity, 3),
+        y: settled ? -48 : round(fgY, 1),
+      },
+    );
   }
 }
 
@@ -257,7 +279,10 @@ export function syncScrollExperienceDepth() {
   enforcePanelsForProgress(progress, experience.panels);
 }
 
-export function restoreSectionFromHash(href: string): number | null {
+export function restoreSectionFromHash(
+  href: string,
+  lenis?: Lenis | null,
+): number | null {
   if (!experience) return null;
 
   const progress = SECTION_PROGRESS[href];
@@ -266,9 +291,16 @@ export function restoreSectionFromHash(href: string): number | null {
   const { scrollTrigger: st, timeline, depth, depthTuning } = experience;
   const y = getScrollYForProgress(st, progress);
 
+  // Lenis owns the scroll position — native st.scroll alone gets overwritten
+  // on the next ticker frame. Always drive Lenis when available.
+  if (lenis) {
+    lenis.scrollTo(y, { immediate: true, force: true });
+  } else {
+    st.scroll(y);
+  }
+
   timeline.progress(progress);
   applyDepthAtProgress(progress, depth, depthTuning);
-  st.scroll(y);
   ScrollTrigger.update();
 
   return y;
@@ -277,12 +309,12 @@ export function restoreSectionFromHash(href: string): number | null {
 export function registerScrollExperience(exp: ScrollExperience) {
   experience = exp;
 
-  if (getSectionHashOnLoad()) {
-    syncScrollExperienceDepth();
-  } else {
+  if (!getSectionHashOnLoad()) {
     heroEntranceLock = true;
     exp.scrollTrigger.disable();
   }
+  // Hash restore is applied later once Lenis + ScrollTrigger.refresh settle —
+  // syncing here would read progress 0 and undo the upcoming jump.
 
   return () => {
     stopNavTween();
@@ -332,7 +364,7 @@ export function scrollToSection(href: string, lenis: Lenis | null | undefined) {
   hideAllPanels(panels);
 
   navTween = gsap.timeline({
-    defaults: { ease: "power2.inOut", overwrite: "auto" },
+    defaults: { ease: "power3.inOut", overwrite: "auto" },
     onComplete: () => finishNav(href, target, targetProgress, lenis),
     onInterrupt: () => {
       navTween = null;

@@ -19,7 +19,8 @@ const geistMono = Geist_Mono({
 const cormorant = Cormorant_Garamond({
   variable: "--font-serif",
   subsets: ["latin", "cyrillic"],
-  weight: ["300", "400", "500", "600"],
+  // Only the hero headline uses the serif, always at font-light.
+  weight: ["300"],
 });
 
 export const metadata: Metadata = {

@@ -7,6 +7,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { stack } from "@/lib/profile";
 import { useTranslations } from "@/components/providers/LocaleProvider";
 import { TextReveal } from "@/components/ui/TextReveal";
+import { prefersReducedMotion } from "@/lib/motion-preferences";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -38,7 +39,7 @@ export const Stack = forwardRef<
 
   useGSAP(
     () => {
-      if (overlay) return;
+      if (overlay || prefersReducedMotion()) return;
 
       gsap.from(".stack-tag", {
         y: 40,
@@ -78,12 +79,14 @@ export const Stack = forwardRef<
       <div className="w-full rounded-2xl border border-border/60 bg-background/85 p-6 backdrop-blur-md sm:p-8 sm:p-10">
         <TextReveal
           as="p"
+          disabled={overlay}
           className="text-xs uppercase tracking-[0.28em] text-accent sm:text-sm sm:tracking-[0.3em]"
         >
           {t.stack.eyebrow}
         </TextReveal>
         <TextReveal
           as="h2"
+          disabled={overlay}
           className="mt-3 text-2xl font-semibold tracking-tight sm:mt-4 sm:text-3xl sm:text-4xl"
           delay={0.1}
         >
@@ -91,6 +94,7 @@ export const Stack = forwardRef<
         </TextReveal>
         <TextReveal
           as="p"
+          disabled={overlay}
           className={`mt-3 text-sm text-muted sm:mt-4${overlay ? " max-sm:hidden" : ""}`}
           delay={0.15}
         >

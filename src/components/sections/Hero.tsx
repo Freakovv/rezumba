@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, type MutableRefObject, type RefObject, type ReactNode, type MouseEvent } from "react";
+import { useEffect, useRef, type MutableRefObject, type RefObject, type ReactNode, type MouseEvent } from "react";
 import Image from "next/image";
 import { useGSAP } from "@gsap/react";
 import { useLenis } from "lenis/react";
 import gsap from "gsap";
 import { profile } from "@/lib/profile";
-import { scrollToSection, getSectionHashOnLoad, isScrollExperienceRegistered, restoreSectionFromHash, setHeroEntranceLock, syncScrollExperienceDepth } from "@/lib/scroll-nav";
+import { scrollToSection, getSectionHashOnLoad, isScrollExperienceRegistered, restoreSectionFromHash, setHeroEntranceLock } from "@/lib/scroll-nav";
+import { prefersReducedMotion } from "@/lib/motion-preferences";
 import { useTranslations } from "@/components/providers/LocaleProvider";
 import { LanguageToggle } from "@/components/ui/LanguageToggle";
 
@@ -109,6 +110,13 @@ export function Hero({
     { label: t.nav.contact, href: "#contact" },
   ];
 
+  const lenis = useLenis();
+  const lenisRef = useRef(lenis);
+
+  useEffect(() => {
+    lenisRef.current = lenis;
+  }, [lenis]);
+
   const containerRef = useRef<HTMLElement>(null);
   const internalVisualRef = useRef<HTMLDivElement>(null);
   const internalFigureRef = useRef<HTMLDivElement>(null);
@@ -125,14 +133,20 @@ export function Hero({
       if (sectionHash) {
         gsap.set(internalForegroundRef.current, { autoAlpha: 0 });
 
-        const applyRestoredState = () => {
+        const applyRestoredState = (attempts = 0) => {
           if (!isScrollExperienceRegistered()) {
-            requestAnimationFrame(applyRestoredState);
+            requestAnimationFrame(() => applyRestoredState(attempts));
             return;
           }
 
-          restoreSectionFromHash(sectionHash);
-          syncScrollExperienceDepth();
+          // Wait for Lenis so the scroll jump sticks (otherwise Lenis raf
+          // overwrites native scroll back to 0).
+          if (!lenisRef.current && attempts < 12) {
+            requestAnimationFrame(() => applyRestoredState(attempts + 1));
+            return;
+          }
+
+          restoreSectionFromHash(sectionHash, lenisRef.current);
           gsap.set(internalForegroundRef.current, { autoAlpha: 0 });
           gsap.set(internalFigureRef.current, { autoAlpha: 1 });
           gsap.set(internalChromeRef.current, { opacity: 1, y: 0 });
@@ -141,7 +155,29 @@ export function Hero({
           section.classList.remove("hero-pending");
         };
 
-        requestAnimationFrame(applyRestoredState);
+        requestAnimationFrame(() => applyRestoredState());
+        return;
+      }
+
+      if (prefersReducedMotion()) {
+        gsap.set(internalVisualRef.current, { scale: 1 });
+        gsap.set(internalFigureRef.current, { autoAlpha: 1, yPercent: 0 });
+        gsap.set(internalForegroundRef.current, { autoAlpha: 1, y: 0, blur: 0 });
+        gsap.set(".hero-line", { autoAlpha: 1, y: 0 });
+        gsap.set(internalChromeRef.current, { opacity: 1, y: 0 });
+        gsap.set(".hero-scroll-hint", { opacity: 1, y: 0 });
+        section.classList.remove("hero-pending");
+
+        // The scroll experience registers after this effect and re-enables
+        // the entrance lock — wait for it before releasing.
+        const releaseLock = () => {
+          if (!isScrollExperienceRegistered()) {
+            requestAnimationFrame(releaseLock);
+            return;
+          }
+          setHeroEntranceLock(false);
+        };
+        requestAnimationFrame(releaseLock);
         return;
       }
 
@@ -164,16 +200,17 @@ export function Hero({
         },
       );
 
+      gsap.set(internalForegroundRef.current, { autoAlpha: 1, y: 0, blur: 0 });
       gsap.fromTo(
-        internalForegroundRef.current,
-        { autoAlpha: 0, y: 48, blur: 0 },
+        ".hero-line",
+        { autoAlpha: 0, y: 44 },
         {
           autoAlpha: 1,
           y: 0,
-          blur: 0,
-          duration: 1.1,
+          duration: 1.2,
           ease: "power3.out",
           delay: 0.35,
+          stagger: 0.11,
           immediateRender: true,
         },
       );
@@ -219,13 +256,13 @@ export function Hero({
       }}
       className={`hero-pending relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-[#050508]${className ? ` ${className}` : ""}`}
     >
-      {/* Background layer — scale + blur on scroll */}
+      {/* Background layer — scale + opacity on scroll (blur driven in JS) */}
       <div
         ref={(node) => {
           internalVisualRef.current = node;
           assignRef(visualRef, node);
         }}
-        className="hero-visual-layer absolute inset-0 z-0 origin-center will-change-[transform,filter,opacity]"
+        className="hero-visual-layer absolute inset-0 z-0 origin-center will-change-transform"
       >
         <div className="absolute inset-0 scale-[1.04]">
           <div className="relative size-full">
@@ -234,7 +271,7 @@ export function Hero({
               alt=""
               fill
               priority
-              quality={90}
+              quality={75}
               sizes="100vw"
               className="object-cover object-center"
             />
@@ -243,9 +280,11 @@ export function Hero({
           <div className="absolute inset-0 bg-gradient-to-t from-[#050508]/80 via-transparent to-[#050508]/25" />
         </div>
         <div className="light-leak" />
-        <div className="film-grain" />
-        <div className="noise-overlay" />
       </div>
+
+      {/* Grain sits outside the blurred/scaled layer so scroll doesn't re-rasterize turbulence every frame */}
+      <div className="film-grain pointer-events-none absolute inset-0 z-[1]" aria-hidden />
+      <div className="noise-overlay pointer-events-none absolute inset-0 z-[1]" aria-hidden />
 
       {/* Name typography — behind figure */}
       <div
@@ -253,7 +292,7 @@ export function Hero({
           internalForegroundRef.current = node;
           assignRef(foregroundRef, node);
         }}
-        className="hero-foreground section-padding pointer-events-none absolute inset-x-0 bottom-[28%] z-10 max-w-full will-change-[transform,opacity,filter] sm:bottom-[34%] lg:bottom-[32%]"
+        className="hero-foreground section-padding pointer-events-none absolute inset-x-0 bottom-[28%] z-10 max-w-full will-change-[transform,opacity] sm:bottom-[34%] lg:bottom-[32%]"
       >
         <h1 className="max-w-full font-serif uppercase">
           <span className="hero-line block text-[clamp(2.35rem,9.2vw,3.65rem)] font-light leading-[0.88] tracking-[0.015em] text-white sm:text-[clamp(4.5rem,12.5vw,9.5rem)] sm:leading-[0.87] sm:tracking-[0.035em]">
@@ -276,7 +315,7 @@ export function Hero({
           internalFigureRef.current = node;
           assignRef(figureRef, node);
         }}
-        className="hero-figure pointer-events-none absolute bottom-0 left-1/2 z-20 h-[72dvh] w-[105vw] max-w-[820px] -translate-x-[54%] origin-bottom will-change-[transform,filter,opacity] sm:h-screen sm:w-[80vw] sm:-translate-x-[61%]"
+        className="hero-figure pointer-events-none absolute bottom-0 left-1/2 z-20 h-[72dvh] w-[105vw] max-w-[820px] -translate-x-[54%] origin-bottom will-change-transform sm:h-screen sm:w-[80vw] sm:-translate-x-[61%]"
       >
         <div className="relative size-full">
           <Image

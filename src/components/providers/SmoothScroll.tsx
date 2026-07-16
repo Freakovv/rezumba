@@ -57,12 +57,12 @@ function LenisScrollTrigger() {
 }
 
 export function SmoothScroll({ children }: { children: React.ReactNode }) {
+  // Default lerp; reduced-motion users get instant follow after mount.
   return (
     <ReactLenis
       root
       options={{
         lerp: 0.08,
-        duration: 1.4,
         smoothWheel: true,
       }}
     >

@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLenis } from "lenis/react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 import { useTranslations } from "@/components/providers/LocaleProvider";
+import { prefersReducedMotion } from "@/lib/motion-preferences";
 
 type CaseModalProps = {
   children: React.ReactNode;
@@ -150,10 +152,31 @@ export function CaseModal({
   const router = useRouter();
   const lenis = useLenis();
   const { height: viewportHeight, offsetTop: viewportOffsetTop } = useVisualViewport();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => {
     router.back();
   }, [router]);
+
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return;
+
+      gsap.fromTo(
+        backdropRef.current,
+        { autoAlpha: 0 },
+        { autoAlpha: 1, duration: 0.3, ease: "power1.out" },
+      );
+      gsap.fromTo(
+        dialogRef.current,
+        { autoAlpha: 0, y: 48, scale: 0.96 },
+        { autoAlpha: 1, y: 0, scale: 1, duration: 0.55, ease: "expo.out" },
+      );
+    },
+    { scope: rootRef },
+  );
 
   useEffect(() => {
     lenis?.stop();
@@ -178,29 +201,25 @@ export function CaseModal({
   }, [close, lenis]);
 
   return (
-    <AnimatePresence>
-      <motion.div
-        className="fixed left-0 right-0 z-50 flex flex-col items-center justify-center p-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:inset-0 sm:p-8"
-        style={
-          viewportHeight !== undefined
-            ? { height: viewportHeight, top: viewportOffsetTop }
-            : undefined
-        }
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <motion.button
+    <div
+      ref={rootRef}
+      className="fixed left-0 right-0 z-50 flex flex-col items-center justify-center p-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:inset-0 sm:p-8"
+      style={
+        viewportHeight !== undefined
+          ? { height: viewportHeight, top: viewportOffsetTop }
+          : undefined
+      }
+    >
+        <button
+          ref={backdropRef}
           type="button"
           aria-label={t.caseModal.closeAria}
           className="absolute inset-0 bg-black/75 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
           onClick={close}
         />
 
-        <motion.div
+        <div
+          ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby="case-modal-title"
@@ -210,10 +229,6 @@ export function CaseModal({
               ? { maxHeight: Math.max(viewportHeight - 32, 320) }
               : { maxHeight: "min(42rem, calc(100dvh - 2rem))" }
           }
-          initial={{ opacity: 0, y: 48, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 48, scale: 0.96 }}
-          transition={{ type: "spring", damping: 28, stiffness: 320 }}
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-surface-elevated px-4 py-3 sm:gap-4 sm:px-6 sm:py-4">
@@ -256,8 +271,7 @@ export function CaseModal({
               </a>
             </div>
           ) : null}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        </div>
+    </div>
   );
 }
